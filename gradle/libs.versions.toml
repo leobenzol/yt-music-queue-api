@@ -3,11 +3,14 @@ morphe-patcher = "1.13.0"
 #noinspection GradleDependency
 smali = "d92701d947"
 gson = "2.14.0"
+android-json = "0.0.20131108.vaadin1"
 junit = "5.14.4"
 protobuf = "0.10.0"
 protoc = "4.36.1"
 
 [libraries]
+# Android's org.json implementation, for unit tests.
+android-json = { module = "com.vaadin.external.google:android-json", version.ref = "android-json" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
