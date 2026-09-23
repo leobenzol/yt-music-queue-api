@@ -34,6 +34,7 @@ object QueueApiPatch {
 
     private const val PREFIX = "io.github.leobenzol.queueapi."
 
+    const val ACTION_REQUEST = PREFIX + "REQUEST"
     const val ACTION_ADD = PREFIX + "ADD"
     const val ACTION_PLAY = PREFIX + "PLAY"
     const val ACTION_MOVE = PREFIX + "MOVE"
@@ -56,6 +57,7 @@ object QueueApiPatch {
     const val EXTRA_REQUEST_ID = "request_id"
     const val EXTRA_REPLY_PACKAGE = "reply_package"
     const val EXTRA_QUERY = "query"
+    const val EXTRA_DEDUPE_KEY = "dedupe_key"
     const val EXTRA_PLAYLIST_ID = "playlist_id"
     const val EXTRA_COMMAND = "command"
     const val EXTRA_LIMIT = "limit"
@@ -74,18 +76,23 @@ object QueueApiPatch {
     const val EXTRA_INDEX = "index"
     const val EXTRA_POSITION = "position"
     const val EXTRA_VIDEO_ID = "video_id"
+    const val EXTRA_REQUESTER = "requester"
 
     const val EXTRA_CURRENT_INDEX = "current_index"
     const val EXTRA_SIZE = "size"
     const val EXTRA_TITLE = "title"
     const val EXTRA_ARTIST = "artist"
-    const val EXTRA_REQUESTER = "requester"
     const val EXTRA_QUEUE_JSON = "queue_json"
     const val EXTRA_QUEUE_TEXT = "queue_text"
 
     const val EVENT_NOW_PLAYING = "NOW_PLAYING"
 
     const val STATUS_OK = "OK"
+    const val STATUS_QUEUED = "QUEUED"
+    const val STATUS_DUPLICATE = "DUPLICATE"
+    const val STATUS_TOO_LONG = "TOO_LONG"
+    const val STATUS_LIMIT_REQUESTER = "LIMIT_REQUESTER"
+    const val STATUS_LIMIT_TOTAL = "LIMIT_TOTAL"
     const val STATUS_NOT_FOUND = "NOT_FOUND"
     const val STATUS_BAD_REQUEST = "BAD_REQUEST"
     const val STATUS_UNAVAILABLE = "UNAVAILABLE"
@@ -110,6 +117,7 @@ object QueueApiPatch {
 
     // Main thread only.
     private val ordering = RequestOrdering()
+    private val redeliveries = RedeliveryFilter()
     private var receiverRegistered = false
     private var lastNowPlayingItem: Any? = null
 
@@ -122,6 +130,18 @@ object QueueApiPatch {
     /** Returns the events patch option. The patch replaces this method's body if events are off. */
     @JvmStatic
     fun eventsEnabled(): Boolean = true
+
+    /** Returns the patch option. The patch replaces this method's body. */
+    @JvmStatic
+    fun maxPendingPerRequester(): Int = 3
+
+    /** Returns the patch option. The patch replaces this method's body. */
+    @JvmStatic
+    fun maxPendingTotal(): Int = 30
+
+    /** Returns the patch option. The patch replaces this method's body. */
+    @JvmStatic
+    fun maxDurationSeconds(): Int = 600
 
     // endregion
 
@@ -157,7 +177,7 @@ object QueueApiPatch {
             context.registerReceiver(receiver, filter)
         }
         receiverRegistered = true
-        if (eventsEnabled()) mainHandler.postDelayed(nowPlayingWatcher, NOW_PLAYING_POLL_MILLISECONDS)
+        mainHandler.postDelayed(nowPlayingWatcher, NOW_PLAYING_POLL_MILLISECONDS)
         Logger.printInfo { "Queue API ready (api_version $API_VERSION)" }
     }
 
@@ -171,6 +191,12 @@ object QueueApiPatch {
                     return
                 }
                 val request = Request(intent)
+                if (request.action == ACTION_REQUEST &&
+                    redeliveries.isRedelivery(request.dedupeKey, request.requester, request.query.ifEmpty { request.videoId.orEmpty() })
+                ) {
+                    Logger.printDebug { "Ignoring repeated delivery: ${request.query}" }
+                    return
+                }
                 worker.execute { handle(request) }
             } catch (ex: Exception) {
                 Logger.printException({ "onReceive failure" }, ex)
@@ -187,6 +213,7 @@ object QueueApiPatch {
     private fun handle(request: Request) {
         try {
             when (request.action) {
+                ACTION_REQUEST -> songRequest(request)
                 ACTION_ADD -> add(request)
                 ACTION_PLAY -> play(request)
                 ACTION_MOVE -> move(request)
@@ -201,6 +228,40 @@ object QueueApiPatch {
             Logger.printException({ "${request.action} failure" }, ex)
             reply(request, STATUS_ERROR, "Something went wrong: $ex")
         }
+    }
+
+    private fun songRequest(request: Request) {
+        val song = resolveSong(request) ?: return
+        val limits = RequestLimits(maxPendingPerRequester(), maxPendingTotal(), maxDurationSeconds())
+        val tracked = RequestOrdering.Request(request.requestId, request.requester, song.videoId, song.title)
+
+        val before = onMain {
+            val queue = queue(request) ?: return@onMain null
+            if (!canExecuteCommands(request)) return@onMain null
+            ordering.prune(queue)
+            SongRequests.check(song, request.requester, ordering.pending(queue), limits)?.let {
+                reply(request, it.status, it.message, songExtras(song))
+                return@onMain null
+            }
+            snapshotAndExecute(
+                request, queue, InnerTubeCommands.queueAdd(song.videoId, null, QueueInsertPosition.INSERT_AFTER_CURRENT_VIDEO),
+            )
+        } ?: return
+
+        val index = awaitAddedItem(before, song.videoId) { queue, item, itemIndex ->
+            ordering.place(queue, item, itemIndex, tracked)
+        }
+        if (index == null) {
+            reply(request, STATUS_TIMEOUT, "Timed out adding \"${song.title}\"", songExtras(song))
+            return
+        }
+        val extras = onMain { currentQueue()?.let { itemExtras(it, index) } ?: songExtras(song) }
+        val message = SongRequests.queuedMessage(
+            extras.getInt(EXTRA_POSITION, -1),
+            extras.getString(EXTRA_TITLE, song.title),
+            extras.getString(EXTRA_ARTIST, song.artist),
+        )
+        reply(request, STATUS_QUEUED, message, extras)
     }
 
     private fun add(request: Request) {
@@ -362,6 +423,7 @@ object QueueApiPatch {
         val limit = request.intExtra(EXTRA_LIMIT, DEFAULT_QUEUE_LIMIT).coerceAtLeast(1)
         onMain {
             val queue = queue(request) ?: return@onMain
+            ordering.prune(queue)
             val current = queue.currentIndex
             val size = queue.size
             val items = (maxOf(0, current) until size).take(limit).map { queueItem(queue.itemAt(it), it) }
@@ -485,7 +547,7 @@ object QueueApiPatch {
         return future.get(MAIN_THREAD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     }
 
-    /** Sends NOW_PLAYING events when the playing item changes. */
+    /** Sends NOW_PLAYING events when the playing item changes, and stops tracking played requests. */
     private val nowPlayingWatcher = object : Runnable {
         override fun run() {
             try {
@@ -495,7 +557,8 @@ object QueueApiPatch {
                     val item = if (current in 0 until queue.size) queue.itemAt(current) else null
                     if (item != null && item !== lastNowPlayingItem) {
                         lastNowPlayingItem = item
-                        broadcastNowPlaying(queueItem(item, current), current)
+                        ordering.prune(queue)
+                        if (eventsEnabled()) broadcastNowPlaying(queueItem(item, current), current)
                     }
                 }
             } catch (ex: Exception) {
@@ -527,6 +590,8 @@ object QueueApiPatch {
         val context = Utils.getContext() ?: return
         val result = Intent(ACTION_RESULT)
         extras?.let { result.putExtras(it) }
+        if (!result.hasExtra(EXTRA_REQUESTER) && request.action == ACTION_REQUEST) result.putExtra(EXTRA_REQUESTER, request.requester)
+        if (request.query.isNotEmpty()) result.putExtra(EXTRA_QUERY, request.query)
         result.putExtra(EXTRA_API_VERSION, API_VERSION)
             .putExtra(EXTRA_ACTION, request.shortAction)
             .putExtra(EXTRA_REQUEST_ID, request.requestId)
@@ -545,6 +610,8 @@ object QueueApiPatch {
         val replyPackage: String? =
             if (extras?.containsKey(EXTRA_REPLY_PACKAGE) == true) stringExtra(EXTRA_REPLY_PACKAGE) else DEFAULT_REPLY_PACKAGE
         val query = stringExtra(EXTRA_QUERY).orEmpty()
+        val requester = stringExtra(EXTRA_REQUESTER)?.takeIf { it.isNotEmpty() } ?: "unknown"
+        val dedupeKey = stringExtra(EXTRA_DEDUPE_KEY)?.takeIf { it.isNotEmpty() }
         val videoId = stringExtra(EXTRA_VIDEO_ID)?.takeIf { it.isNotEmpty() }
         val playlistId = stringExtra(EXTRA_PLAYLIST_ID)?.takeIf { it.isNotEmpty() }
 

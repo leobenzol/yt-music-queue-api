@@ -3,6 +3,7 @@ package io.github.leobenzol.patches.queueapi
 import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.patch.booleanOption
 import app.morphe.patcher.patch.bytecodePatch
+import app.morphe.patcher.patch.intOption
 import app.morphe.patcher.patch.stringOption
 import app.morphe.util.returnEarly
 import io.github.leobenzol.patches.shared.Constants.COMPATIBILITY_YOUTUBE_MUSIC
@@ -41,9 +42,36 @@ val queueApiPatch = bytecodePatch(
         description = "Broadcast an event whenever the playing song changes.",
     )
 
+    val maxPerRequester by intOption(
+        key = "maxPerRequester",
+        default = 3,
+        title = "Max waiting songs per person",
+        description = "Further requests from a person are rejected until one of theirs plays. 0 allows any number.",
+        required = true,
+    ) { it != null && it >= 0 }
+
+    val maxTotal by intOption(
+        key = "maxTotal",
+        default = 30,
+        title = "Max waiting requests",
+        description = "Requests allowed ahead of your own queue. 0 allows any number.",
+        required = true,
+    ) { it != null && it >= 0 }
+
+    val maxDuration by intOption(
+        key = "maxDuration",
+        default = 600,
+        title = "Max song length (seconds)",
+        description = "Longer songs are rejected. 0 allows any length.",
+        required = true,
+    ) { it != null && it >= 0 }
+
     execute {
-        TokenFingerprint.method.returnEarly(token!!)
-        if (events == false) EventsEnabledFingerprint.method.returnEarly(false)
+        optionFingerprint("token", "Ljava/lang/String;").method.returnEarly(token!!)
+        optionFingerprint("eventsEnabled", "Z").method.returnEarly(events != false)
+        optionFingerprint("maxPendingPerRequester", "I").method.returnEarly(maxPerRequester!!)
+        optionFingerprint("maxPendingTotal", "I").method.returnEarly(maxTotal!!)
+        optionFingerprint("maxDurationSeconds", "I").method.returnEarly(maxDuration!!)
 
         // The shared extension patch sets the context before this call, because it adds its hook
         // at the start of the same method later, in finalize.

@@ -17,16 +17,10 @@ internal object MediaSessionQueueFingerprint : Fingerprint(
     strings = listOf("BT metadata: Set playing queue item: %s, %s, %s"),
 )
 
-internal object TokenFingerprint : Fingerprint(
+/** A method of the extension that returns a patch option. The patch replaces its body. */
+internal fun optionFingerprint(name: String, returnType: String) = Fingerprint(
     definingClass = EXTENSION_CLASS,
-    name = "token",
-    returnType = "Ljava/lang/String;",
-    parameters = listOf(),
-)
-
-internal object EventsEnabledFingerprint : Fingerprint(
-    definingClass = EXTENSION_CLASS,
-    name = "eventsEnabled",
-    returnType = "Z",
+    name = name,
+    returnType = returnType,
     parameters = listOf(),
 )
