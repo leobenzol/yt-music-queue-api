@@ -81,6 +81,7 @@ To develop and release your Patches using this template:
 
 - Run `./gradlew buildAndroid`
 - The built patches .mpp file is found in `patches/build/libs/patches-*.mpp`
+- Run the unit tests of the patches and the extension with `./gradlew test`
 - Patch the mpp file using [Morphe-Desktop](https://github.com/MorpheApp/morphe-desktop)
   like any other patch bundle.
 
