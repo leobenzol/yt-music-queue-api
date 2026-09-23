@@ -42,6 +42,9 @@ internal class QueueTargets(
     val size: InvokeTarget,
     val currentIndex: InvokeTarget,
     val item: InvokeTarget,
+    val move: InvokeTarget,
+    val remove: InvokeTarget,
+    val setCurrentIndex: InvokeTarget,
     val itemType: String,
     val itemVideoId: InvokeTarget,
 )
@@ -84,6 +87,9 @@ internal fun BytecodePatchContext.findQueueTargets(): QueueTargets {
         size = queueMethod(queueField.type, "size(section)", listOf("I"), "I"),
         currentIndex = currentIndex,
         item = item,
+        move = queueMethod(queueField.type, "move(fromSection, from, toSection, to)", listOf("I", "I", "I", "I"), "V"),
+        remove = queueMethod(queueField.type, "remove(section, start, count)", listOf("I", "I", "I"), "V"),
+        setCurrentIndex = queueMethod(queueField.type, "setCurrentIndex(index)", listOf("I"), "V"),
         itemType = itemType,
         itemVideoId = invokeTarget(videoIds.single()),
     )

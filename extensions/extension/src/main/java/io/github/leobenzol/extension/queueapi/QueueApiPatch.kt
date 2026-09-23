@@ -30,6 +30,10 @@ object QueueApiPatch {
 
     private const val PREFIX = "io.github.leobenzol.queueapi."
 
+    const val ACTION_MOVE = PREFIX + "MOVE"
+    const val ACTION_REMOVE = PREFIX + "REMOVE"
+    const val ACTION_JUMP = PREFIX + "JUMP"
+    const val ACTION_CLEAR = PREFIX + "CLEAR"
     const val ACTION_GET_QUEUE = PREFIX + "GET_QUEUE"
 
     /** The actions of the API. Each one is handled from the step that adds it. */
@@ -45,6 +49,10 @@ object QueueApiPatch {
     const val EXTRA_REQUEST_ID = "request_id"
     const val EXTRA_REPLY_PACKAGE = "reply_package"
     const val EXTRA_LIMIT = "limit"
+    const val EXTRA_FROM = "from"
+    const val EXTRA_TO = "to"
+    const val EXTRA_COUNT = "count"
+    const val EXTRA_SCOPE = "scope"
 
     // Result and event extras.
     const val EXTRA_API_VERSION = "api_version"
@@ -52,11 +60,13 @@ object QueueApiPatch {
     const val EXTRA_STATUS = "status"
     const val EXTRA_MESSAGE = "message"
     const val EXTRA_EVENT = "event"
+    // Also request extras.
     const val EXTRA_INDEX = "index"
+    const val EXTRA_VIDEO_ID = "video_id"
+
     const val EXTRA_POSITION = "position"
     const val EXTRA_CURRENT_INDEX = "current_index"
     const val EXTRA_SIZE = "size"
-    const val EXTRA_VIDEO_ID = "video_id"
     const val EXTRA_TITLE = "title"
     const val EXTRA_ARTIST = "artist"
     const val EXTRA_REQUESTER = "requester"
@@ -66,6 +76,7 @@ object QueueApiPatch {
     const val EVENT_NOW_PLAYING = "NOW_PLAYING"
 
     const val STATUS_OK = "OK"
+    const val STATUS_NOT_FOUND = "NOT_FOUND"
     const val STATUS_BAD_REQUEST = "BAD_REQUEST"
     const val STATUS_UNAVAILABLE = "UNAVAILABLE"
     const val STATUS_ERROR = "ERROR"
@@ -152,12 +163,78 @@ object QueueApiPatch {
     private fun handle(request: Request) {
         try {
             when (request.action) {
+                ACTION_MOVE -> move(request)
+                ACTION_REMOVE -> remove(request)
+                ACTION_JUMP -> jump(request)
+                ACTION_CLEAR -> clear(request)
                 ACTION_GET_QUEUE -> getQueue(request)
                 else -> reply(request, STATUS_BAD_REQUEST, "Unsupported action")
             }
         } catch (ex: Exception) {
             Logger.printException({ "${request.action} failure" }, ex)
             reply(request, STATUS_ERROR, "Something went wrong: $ex")
+        }
+    }
+
+    private fun move(request: Request) {
+        val from = request.intExtra(EXTRA_FROM, -1)
+        val to = request.intExtra(EXTRA_TO, -1)
+        onMain {
+            val queue = queue(request) ?: return@onMain
+            if (!QueueEdits.isValidIndex(queue, from) || !QueueEdits.isValidIndex(queue, to)) {
+                reply(request, STATUS_BAD_REQUEST, "from and to must be ${indexRange(queue)}")
+                return@onMain
+            }
+            queue.move(from, to)
+            reply(request, STATUS_OK, "Moved item $from to $to", itemExtras(queue, to))
+        }
+    }
+
+    private fun remove(request: Request) {
+        val videoId = request.stringExtra(EXTRA_VIDEO_ID)
+        onMain {
+            val queue = queue(request) ?: return@onMain
+            var index = request.intExtra(EXTRA_INDEX, -1)
+            if (request.stringExtra(EXTRA_INDEX) == null && !videoId.isNullOrEmpty()) {
+                index = QueueEdits.upcomingIndexOf(queue, videoId)
+            }
+            if (!QueueEdits.isValidIndex(queue, index)) {
+                reply(request, STATUS_NOT_FOUND, "No such queue item")
+                return@onMain
+            }
+            val extras = itemExtras(queue, index)
+            val removed = QueueEdits.remove(queue, index, request.intExtra(EXTRA_COUNT, 1))
+            extras.putInt(EXTRA_COUNT, removed)
+            reply(request, STATUS_OK, "Removed $removed item(s) at index $index", extras)
+        }
+    }
+
+    private fun jump(request: Request) {
+        val index = request.intExtra(EXTRA_INDEX, -1)
+        onMain {
+            val queue = queue(request) ?: return@onMain
+            if (!QueueEdits.isValidIndex(queue, index)) {
+                reply(request, STATUS_BAD_REQUEST, "index must be ${indexRange(queue)}")
+                return@onMain
+            }
+            queue.jump(index)
+            reply(request, STATUS_OK, "Playing item $index", itemExtras(queue, index))
+        }
+    }
+
+    private fun clear(request: Request) {
+        val scope = request.stringExtra(EXTRA_SCOPE)?.lowercase() ?: "requests"
+        onMain {
+            val queue = queue(request) ?: return@onMain
+            val removed = when (scope) {
+                "requests" -> QueueEdits.clearRequests(queue, ordering)
+                "upcoming" -> QueueEdits.clearUpcoming(queue)
+                else -> {
+                    reply(request, STATUS_BAD_REQUEST, "scope must be requests or upcoming")
+                    return@onMain
+                }
+            }
+            reply(request, STATUS_OK, "Removed $removed item(s)", Bundle().apply { putInt(EXTRA_COUNT, removed) })
         }
     }
 
@@ -206,6 +283,12 @@ object QueueApiPatch {
             requester = request?.requester,
         )
     }
+
+    private fun indexRange(queue: PlayerQueue) =
+        if (queue.size == 0) "a queue index, but the queue is empty" else "between 0 and ${queue.size - 1}"
+
+    private fun itemExtras(queue: PlayerQueue, index: Int) =
+        itemExtras(queueItem(queue.itemAt(index), index), queue.currentIndex)
 
     private fun itemExtras(item: QueueItem, currentIndex: Int) = Bundle().apply {
         putInt(EXTRA_INDEX, item.index)

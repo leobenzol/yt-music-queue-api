@@ -62,7 +62,7 @@ val queueApiPatch = bytecodePatch(
         with(queue) {
             makePublic(managerType)
             makePublic(queueField)
-            listOf(size, currentIndex, item, itemVideoId).forEach { makePublic(it.reference) }
+            listOf(size, currentIndex, item, move, remove, setCurrentIndex, itemVideoId).forEach { makePublic(it.reference) }
             makePublic(itemType)
         }
         metadata?.let {
@@ -106,6 +106,30 @@ val queueApiPatch = bytecodePatch(
                     ${item.opcode} { p0, p1, p2 }, ${item.reference}
                     move-result-object v0
                     return-object v0
+                """,
+            )
+            bridge.replaceBody(
+                "queueMove", 0,
+                """
+                    check-cast p0, ${queueField.type}
+                    ${move.opcode} { p0, p1, p2, p3, p4 }, ${move.reference}
+                    return-void
+                """,
+            )
+            bridge.replaceBody(
+                "queueRemove", 0,
+                """
+                    check-cast p0, ${queueField.type}
+                    ${remove.opcode} { p0, p1, p2, p3 }, ${remove.reference}
+                    return-void
+                """,
+            )
+            bridge.replaceBody(
+                "queueSetCurrentIndex", 0,
+                """
+                    check-cast p0, ${queueField.type}
+                    ${setCurrentIndex.opcode} { p0, p1 }, ${setCurrentIndex.reference}
+                    return-void
                 """,
             )
             bridge.replaceBody(

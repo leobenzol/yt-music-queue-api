@@ -6,16 +6,23 @@ package io.github.leobenzol.extension.queueapi
  * Take a new one for every operation, since the app replaces the queue object when a new
  * playlist or radio starts.
  */
-class PlayerQueue private constructor(private val queue: Any) {
+class PlayerQueue private constructor(private val queue: Any) : EditableQueue {
     /** Size of the queue shown in "Up next". */
-    val size get() = AppBridge.queueSize(queue, SECTION_QUEUE)
+    override val size get() = AppBridge.queueSize(queue, SECTION_QUEUE)
 
-    /** Index of the playing item, or -1. */
-    val currentIndex get() = AppBridge.queueCurrentIndex(queue)
+    override val currentIndex get() = AppBridge.queueCurrentIndex(queue)
 
     val autoplaySize get() = AppBridge.queueSize(queue, SECTION_AUTOPLAY)
 
-    fun itemAt(index: Int): Any = AppBridge.queueItem(queue, SECTION_QUEUE, index)!!
+    override fun itemAt(index: Int): Any = AppBridge.queueItem(queue, SECTION_QUEUE, index)!!
+
+    override fun videoIdAt(index: Int) = AppBridge.itemVideoId(itemAt(index))
+
+    override fun move(from: Int, to: Int) = AppBridge.queueMove(queue, SECTION_QUEUE, from, SECTION_QUEUE, to)
+
+    override fun remove(start: Int, count: Int) = AppBridge.queueRemove(queue, SECTION_QUEUE, start, count)
+
+    override fun jump(index: Int) = AppBridge.queueSetCurrentIndex(queue, index)
 
     fun autoplayItemAt(index: Int): Any = AppBridge.queueItem(queue, SECTION_AUTOPLAY, index)!!
 

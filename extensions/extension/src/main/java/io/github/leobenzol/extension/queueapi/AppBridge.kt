@@ -25,6 +25,17 @@ object AppBridge {
     @JvmStatic
     fun queueItem(queue: Any, section: Int, index: Int): Any? = throw notPatched()
 
+    /** Removes the item and inserts it again, so that it ends up at [toIndex]. */
+    @JvmStatic
+    fun queueMove(queue: Any, fromSection: Int, fromIndex: Int, toSection: Int, toIndex: Int): Unit = throw notPatched()
+
+    @JvmStatic
+    fun queueRemove(queue: Any, section: Int, start: Int, count: Int): Unit = throw notPatched()
+
+    /** Makes the item at [index] of section 0 the current item, which starts playing it. */
+    @JvmStatic
+    fun queueSetCurrentIndex(queue: Any, index: Int): Unit = throw notPatched()
+
     @JvmStatic
     fun itemVideoId(item: Any): String? = throw notPatched()
 
