@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package io.github.leobenzol.extension.queueapi.innertube;
+
+option optimize_for = LITE_RUNTIME;
+option java_package = "io.github.leobenzol.extension.queueapi.innertube";
+option java_multiple_files = true;
+
+// The part of InnerTube's NavigationEndpoint that the app runs to change the queue.
+// Field numbers are part of the InnerTube wire format and do not change between app versions.
+message NavigationEndpoint {
+    // Plays a video or playlist now.
+    WatchEndpoint watchEndpoint = 48687757;
+    // What "Play next" and "Add to queue" run.
+    QueueAddEndpoint queueAddEndpoint = 163162354;
+}
+
+message WatchEndpoint {
+    string videoId = 1;
+    string playlistId = 2;
+}
+
+message QueueAddEndpoint {
+    QueueTarget queueTarget = 1;
+    QueueInsertPosition queueInsertPosition = 2;
+}
+
+message QueueTarget {
+    string videoId = 1;
+    string playlistId = 2;
+}
+
+enum QueueInsertPosition {
+    QUEUE_INSERT_POSITION_UNKNOWN = 0;
+    INSERT_AFTER_CURRENT_VIDEO = 1;
+    INSERT_AT_END = 2;
+}

@@ -1,5 +1,105 @@
 {
   "NOTE": "Do NOT manually edit this file. This file is automatically updated when semantic release (release.yml) runs. Manually editing this file can break your releases and break third party tools that use this file.",
-  "version": "0.0.0",
-  "patches": []
+  "version": "1.0.0-dev.2",
+  "patches": [
+    {
+      "name": "Queue API",
+      "description": "Lets other apps, such as Tasker, control the queue with broadcast intents.",
+      "default": false,
+      "category": null,
+      "dependencies": [
+        "BytecodePatch"
+      ],
+      "compatiblePackages": [
+        {
+          "packageName": "com.google.android.apps.youtube.music",
+          "name": "YouTube Music",
+          "description": null,
+          "apkFileType": "APK_REQUIRED",
+          "appIconColor": "#FF0000",
+          "signatures": [
+            "6a2f65ec694a6a632acdcb5080912a565f903d4b8d83f0eb8e44fbdf2660d8e1",
+            "a2a1ad7ba7f41dfca4514e2afeb90691719af6d0fdbed4b09bbf0ed897701ceb"
+          ],
+          "targets": [
+            {
+              "version": "9.37.54",
+              "versionCodes": null,
+              "isExperimental": true,
+              "minSdk": 26,
+              "description": null
+            },
+            {
+              "version": "9.36.50",
+              "versionCodes": null,
+              "isExperimental": true,
+              "minSdk": 26,
+              "description": null
+            },
+            {
+              "version": "9.35.54",
+              "versionCodes": null,
+              "isExperimental": true,
+              "minSdk": 26,
+              "description": null
+            },
+            {
+              "version": "9.15.51",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": 26,
+              "description": null
+            }
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "token",
+          "title": "Token",
+          "description": "Secret that every intent must include. 8 to 64 characters: letters, digits, - and _.",
+          "required": true,
+          "type": "kotlin.String",
+          "default": null,
+          "values": null
+        },
+        {
+          "key": "events",
+          "title": "Now playing events",
+          "description": "Broadcast an event whenever the playing song changes.",
+          "required": false,
+          "type": "kotlin.Boolean",
+          "default": true,
+          "values": null
+        },
+        {
+          "key": "maxPerRequester",
+          "title": "Max waiting songs per person",
+          "description": "Further requests from a person are rejected until one of theirs plays. 0 allows any number.",
+          "required": true,
+          "type": "kotlin.Int",
+          "default": 3,
+          "values": null
+        },
+        {
+          "key": "maxTotal",
+          "title": "Max waiting requests",
+          "description": "Requests allowed ahead of your own queue. 0 allows any number.",
+          "required": true,
+          "type": "kotlin.Int",
+          "default": 30,
+          "values": null
+        },
+        {
+          "key": "maxDuration",
+          "title": "Max song length (seconds)",
+          "description": "Longer songs are rejected. 0 allows any length.",
+          "required": true,
+          "type": "kotlin.Int",
+          "default": 600,
+          "values": null
+        }
+      ]
+    }
+  ]
 }

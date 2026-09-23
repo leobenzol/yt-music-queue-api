@@ -1,11 +1,28 @@
 [versions]
-morphe-patcher = "1.13.0"
+morphe-patcher = "1.14.0"
+morphe-patches-library = "1.7.1-dev.2"
 #noinspection GradleDependency
 smali = "d92701d947"
 gson = "2.14.0"
+android-json = "0.0.20131108.vaadin1"
+junit = "5.14.4"
+protobuf = "0.10.0"
+protoc = "4.36.1"
 
 [libraries]
+morphe-patches-library = { module = "app.morphe:morphe-patches-library", version.ref = "morphe-patches-library" }
+morphe-extensions-library = { module = "app.morphe:morphe-extensions-library", version.ref = "morphe-patches-library" }
+# Android's org.json implementation, for unit tests.
+android-json = { module = "com.vaadin.external.google:android-json", version.ref = "android-json" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protoc" }
+protobuf-protoc = { module = "com.google.protobuf:protoc", version.ref = "protoc" }
 # Gradle plugins adds the dependency during build, this declaration is here only for dependabot to provide updates.
 #noinspection UnusedVersionCatalogEntry
 morphe-patcher = { module = "app.morphe:morphe-patcher", version.ref = "morphe-patcher" }
+
+[plugins]
+protobuf = { id = "com.google.protobuf", version.ref = "protobuf" }
