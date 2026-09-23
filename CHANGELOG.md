@@ -1,3 +1,12 @@
+## [1.0.0-dev.2](https://github.com/leobenzol/yt-music-queue-api/compare/v1.0.0-dev.1...v1.0.0-dev.2) (2026-09-23)
+
+### ✨ New Features
+
+* add ADD, PLAY and EXECUTE ([5d18bce](https://github.com/leobenzol/yt-music-queue-api/commit/5d18bced84ca03e029d09ba7e19679a8e3ea8949))
+* add GET_QUEUE and now playing events ([f186a32](https://github.com/leobenzol/yt-music-queue-api/commit/f186a326ca23da880919c4b6fc1e6ba24525d17f))
+* add MOVE, REMOVE, JUMP and CLEAR ([5fc4168](https://github.com/leobenzol/yt-music-queue-api/commit/5fc416881fc04bfd2eeba95f75be1142e99b92b1))
+* add song requests ([feefb0b](https://github.com/leobenzol/yt-music-queue-api/commit/feefb0ba292bca1451287c8254d387f160c8eebf))
+
 ## 1.0.0-dev.1 (2026-09-23)
 
 ### ✨ New Features

@@ -1,6 +1,6 @@
 {
   "NOTE": "Do NOT manually edit this file. This file is automatically updated when semantic release (release.yml) runs. Manually editing this file can break your releases and break third party tools that use this file.",
-  "version": "1.0.0-dev.1",
+  "version": "1.0.0-dev.2",
   "patches": [
     {
       "name": "Queue API",
@@ -61,6 +61,42 @@
           "required": true,
           "type": "kotlin.String",
           "default": null,
+          "values": null
+        },
+        {
+          "key": "events",
+          "title": "Now playing events",
+          "description": "Broadcast an event whenever the playing song changes.",
+          "required": false,
+          "type": "kotlin.Boolean",
+          "default": true,
+          "values": null
+        },
+        {
+          "key": "maxPerRequester",
+          "title": "Max waiting songs per person",
+          "description": "Further requests from a person are rejected until one of theirs plays. 0 allows any number.",
+          "required": true,
+          "type": "kotlin.Int",
+          "default": 3,
+          "values": null
+        },
+        {
+          "key": "maxTotal",
+          "title": "Max waiting requests",
+          "description": "Requests allowed ahead of your own queue. 0 allows any number.",
+          "required": true,
+          "type": "kotlin.Int",
+          "default": 30,
+          "values": null
+        },
+        {
+          "key": "maxDuration",
+          "title": "Max song length (seconds)",
+          "description": "Longer songs are rejected. 0 allows any length.",
+          "required": true,
+          "type": "kotlin.Int",
+          "default": 600,
           "values": null
         }
       ]
