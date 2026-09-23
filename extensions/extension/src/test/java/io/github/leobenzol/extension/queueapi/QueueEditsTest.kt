@@ -18,7 +18,12 @@ class QueueEditsTest {
 
         override fun videoIdAt(index: Int) = items[index].id
 
-        override fun move(from: Int, to: Int) = items.add(to, items.removeAt(from))
+        /** Keeps the playing item current, like the app. */
+        override fun move(from: Int, to: Int) {
+            val playing = items[currentIndex]
+            items.add(to, items.removeAt(from))
+            currentIndex = items.indexOf(playing)
+        }
 
         override fun remove(start: Int, count: Int) = repeat(count) { items.removeAt(start) }
 
@@ -77,5 +82,28 @@ class QueueEditsTest {
     fun `isValidIndex`() {
         val queue = FakeQueue("C", "M1")
         assertEquals(listOf(false, true, true, false), listOf(-1, 0, 1, 2).map { QueueEdits.isValidIndex(queue, it) })
+    }
+
+    @Test
+    fun `AddPosition parses next, end and indexes`() {
+        assertEquals(AddPosition.End, AddPosition.parse(null))
+        assertEquals(AddPosition.End, AddPosition.parse(" END "))
+        assertEquals(AddPosition.Next, AddPosition.parse("next"))
+        assertEquals(AddPosition.Index(2), AddPosition.parse("2"))
+        assertEquals(null, AddPosition.parse("soon"))
+    }
+
+    @Test
+    fun `placeAdded moves the added item to the requested position`() {
+        fun added(position: AddPosition): String {
+            val queue = FakeQueue("P", "C", "M1", "M2", "NEW")
+            queue.currentIndex = 1
+            QueueEdits.placeAdded(queue, 4, position)
+            return queue.toString()
+        }
+        assertEquals("P [C] NEW M1 M2", added(AddPosition.Next))
+        assertEquals("P [C] M1 M2 NEW", added(AddPosition.End))
+        assertEquals("NEW P [C] M1 M2", added(AddPosition.Index(0)))
+        assertEquals("P [C] M1 M2 NEW", added(AddPosition.Index(99)))
     }
 }

@@ -33,10 +33,14 @@ object MusicSearch {
 
     private val LINK_VIDEO_ID =
         Regex("(?:youtube\\.com/(?:watch\\?(?:.*&)?v=|shorts/)|youtu\\.be/)([A-Za-z0-9_-]{11})")
+    private val LINK_PLAYLIST_ID = Regex("[?&]list=([A-Za-z0-9_-]{10,})")
     private val DURATION = Regex("(?:(\\d+):)?(\\d{1,2}):(\\d{2})")
 
     /** The video id of a YouTube link in [text], or null. */
     fun videoIdFromLink(text: String): String? = LINK_VIDEO_ID.find(text)?.groupValues?.get(1)
+
+    /** The playlist id of a link with a list parameter in [text], or null. */
+    fun playlistIdFromLink(text: String): String? = LINK_PLAYLIST_ID.find(text)?.groupValues?.get(1)
 
     /** The best "Songs" match for [query], or null. Blocks, so call it off the main thread. */
     fun search(query: String): Result? {

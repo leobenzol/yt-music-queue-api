@@ -73,4 +73,11 @@ class MusicSearchTest {
         assertNull(MusicSearch.videoIdFromLink("daft punk one more time"))
         assertNull(MusicSearch.videoIdFromLink("https://music.youtube.com/playlist?list=PLxyz1234567890"))
     }
+
+    @Test
+    fun `playlist id from links`() {
+        assertEquals("PLxyz1234567890", MusicSearch.playlistIdFromLink("https://music.youtube.com/playlist?list=PLxyz1234567890"))
+        assertEquals("RDAMVMBSTsnWoslP4", MusicSearch.playlistIdFromLink("https://music.youtube.com/watch?v=BSTsnWoslP4&list=RDAMVMBSTsnWoslP4"))
+        assertNull(MusicSearch.playlistIdFromLink("https://youtu.be/BSTsnWoslP4"))
+    }
 }

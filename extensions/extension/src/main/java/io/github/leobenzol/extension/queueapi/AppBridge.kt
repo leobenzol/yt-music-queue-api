@@ -47,5 +47,18 @@ object AppBridge {
     @JvmStatic
     fun itemArtist(item: Any): String? = null
 
+    /** Parses InnerTube NavigationEndpoint bytes with the app's generated extension registry. */
+    @JvmStatic
+    fun parseCommand(bytes: ByteArray): Any? = throw notPatched()
+
+    /**
+     * Runs a parsed NavigationEndpoint with the resolver the app registered for it in
+     * [commandMapping], exactly like a tap in the app.
+     *
+     * @return False if this mapping has no resolver for the command.
+     */
+    @JvmStatic
+    fun executeCommand(commandMapping: Any, command: Any): Boolean = throw notPatched()
+
     private fun notPatched() = IllegalStateException("Queue API bridge method was not patched")
 }

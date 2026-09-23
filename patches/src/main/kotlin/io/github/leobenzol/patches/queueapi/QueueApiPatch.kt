@@ -54,9 +54,10 @@ val queueApiPatch = bytecodePatch(
 
         val queue = findQueueTargets()
         val metadata = findMetadataTargets()
+        val commands = findCommandTargets()
         Logger.getLogger(this::class.java.name).info(
             "Queue API: manager ${queue.managerType}, queue ${queue.queueField.type}, " +
-                "metadata ${metadata?.type ?: "unavailable"}",
+                "metadata ${metadata?.type ?: "unavailable"}, commands ${commands.mappingType}",
         )
 
         with(queue) {
@@ -69,6 +70,16 @@ val queueApiPatch = bytecodePatch(
             makePublic(it.type)
             makePublic(it.title.reference)
             makePublic(it.artist.reference)
+        }
+        with(commands) {
+            makePublic(mappingType)
+            makePublic(endpointType)
+            makePublic(endpointDefaultInstance)
+            makePublic(parseFrom)
+            makePublic(generatedRegistry)
+            makePublic(findResolver.reference)
+            makePublic(unresolved)
+            makePublic(resolve.reference)
         }
 
         val bridge = mutableClassDefBy(BRIDGE_CLASS)
@@ -162,6 +173,41 @@ val queueApiPatch = bytecodePatch(
             }
         }
 
+        with(commands) {
+            bridge.replaceBody(
+                "parseCommand", 2,
+                """
+                    sget-object v0, $endpointDefaultInstance
+                    invoke-static { }, $generatedRegistry
+                    move-result-object v1
+                    invoke-static { v0, p0, v1 }, $parseFrom
+                    move-result-object v0
+                    return-object v0
+                """,
+            )
+            bridge.replaceBody(
+                "executeCommand", 2,
+                """
+                    check-cast p0, $mappingType
+                    check-cast p1, $endpointType
+                    ${findResolver.opcode} { p0, p1 }, ${findResolver.reference}
+                    move-result-object v0
+                    if-eqz v0, :unresolved
+                    sget-object v1, $unresolved
+                    if-eq v0, v1, :unresolved
+                    new-instance v1, Ljava/util/HashMap;
+                    invoke-direct { v1 }, Ljava/util/HashMap;-><init>()V
+                    ${resolve.opcode} { v0, p1, v1 }, ${resolve.reference}
+                    const/4 v0, 0x1
+                    return v0
+                    :unresolved
+                    const/4 v0, 0x0
+                    return v0
+                """,
+            )
+        }
+
         hookConstructors(queue.managerType, "onQueueManagerCreated")
+        hookConstructors(commands.mappingType, "onCommandMappingCreated")
     }
 }

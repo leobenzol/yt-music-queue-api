@@ -10,9 +10,13 @@ import android.os.Handler
 import android.os.Looper
 import app.morphe.extension.shared.Logger
 import app.morphe.extension.shared.Utils
+import io.github.leobenzol.extension.queueapi.innertube.QueueInsertPosition
 import java.lang.ref.WeakReference
 import java.security.MessageDigest
+import java.util.Base64
+import java.util.IdentityHashMap
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -30,11 +34,14 @@ object QueueApiPatch {
 
     private const val PREFIX = "io.github.leobenzol.queueapi."
 
+    const val ACTION_ADD = PREFIX + "ADD"
+    const val ACTION_PLAY = PREFIX + "PLAY"
     const val ACTION_MOVE = PREFIX + "MOVE"
     const val ACTION_REMOVE = PREFIX + "REMOVE"
     const val ACTION_JUMP = PREFIX + "JUMP"
     const val ACTION_CLEAR = PREFIX + "CLEAR"
     const val ACTION_GET_QUEUE = PREFIX + "GET_QUEUE"
+    const val ACTION_EXECUTE = PREFIX + "EXECUTE"
 
     /** The actions of the API. Each one is handled from the step that adds it. */
     private val ACTIONS = listOf(
@@ -48,6 +55,9 @@ object QueueApiPatch {
     const val EXTRA_TOKEN = "token"
     const val EXTRA_REQUEST_ID = "request_id"
     const val EXTRA_REPLY_PACKAGE = "reply_package"
+    const val EXTRA_QUERY = "query"
+    const val EXTRA_PLAYLIST_ID = "playlist_id"
+    const val EXTRA_COMMAND = "command"
     const val EXTRA_LIMIT = "limit"
     const val EXTRA_FROM = "from"
     const val EXTRA_TO = "to"
@@ -62,9 +72,9 @@ object QueueApiPatch {
     const val EXTRA_EVENT = "event"
     // Also request extras.
     const val EXTRA_INDEX = "index"
+    const val EXTRA_POSITION = "position"
     const val EXTRA_VIDEO_ID = "video_id"
 
-    const val EXTRA_POSITION = "position"
     const val EXTRA_CURRENT_INDEX = "current_index"
     const val EXTRA_SIZE = "size"
     const val EXTRA_TITLE = "title"
@@ -79,6 +89,7 @@ object QueueApiPatch {
     const val STATUS_NOT_FOUND = "NOT_FOUND"
     const val STATUS_BAD_REQUEST = "BAD_REQUEST"
     const val STATUS_UNAVAILABLE = "UNAVAILABLE"
+    const val STATUS_TIMEOUT = "TIMEOUT"
     const val STATUS_ERROR = "ERROR"
 
     /** Receives results when a request does not name a reply package. */
@@ -86,9 +97,14 @@ object QueueApiPatch {
     private const val DEFAULT_QUEUE_LIMIT = 50
     private const val MAIN_THREAD_TIMEOUT_SECONDS = 5L
     private const val NOW_PLAYING_POLL_MILLISECONDS = 1_000L
+    private const val INSERT_TIMEOUT_MILLISECONDS = 15_000L
+    private const val INSERT_POLL_MILLISECONDS = 250L
 
     @Volatile
     private var queueManager = WeakReference<Any>(null)
+
+    /** The app creates a few command mappings (command type to resolver). Any may handle a command. */
+    private val commandMappings = CopyOnWriteArrayList<WeakReference<Any>>()
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
@@ -116,6 +132,14 @@ object QueueApiPatch {
     fun onQueueManagerCreated(queueManager: Any) {
         this.queueManager = WeakReference(queueManager)
         Logger.printDebug { "Queue manager: $queueManager" }
+    }
+
+    /** Injection point: end of every command mapping constructor. */
+    @JvmStatic
+    fun onCommandMappingCreated(commandMapping: Any) {
+        commandMappings.removeAll { it.get() == null }
+        commandMappings.add(WeakReference(commandMapping))
+        Logger.printDebug { "Command mapping: $commandMapping" }
     }
 
     /** Injection point: start of MusicActivity.onCreate, after the shared extension got the context. */
@@ -163,17 +187,113 @@ object QueueApiPatch {
     private fun handle(request: Request) {
         try {
             when (request.action) {
+                ACTION_ADD -> add(request)
+                ACTION_PLAY -> play(request)
                 ACTION_MOVE -> move(request)
                 ACTION_REMOVE -> remove(request)
                 ACTION_JUMP -> jump(request)
                 ACTION_CLEAR -> clear(request)
                 ACTION_GET_QUEUE -> getQueue(request)
+                ACTION_EXECUTE -> execute(request)
                 else -> reply(request, STATUS_BAD_REQUEST, "Unsupported action")
             }
         } catch (ex: Exception) {
             Logger.printException({ "${request.action} failure" }, ex)
             reply(request, STATUS_ERROR, "Something went wrong: $ex")
         }
+    }
+
+    private fun add(request: Request) {
+        val position = AddPosition.parse(request.stringExtra(EXTRA_POSITION)) ?: run {
+            reply(request, STATUS_BAD_REQUEST, "position must be next, end or an index")
+            return
+        }
+        val insertPosition =
+            if (position == AddPosition.Next) QueueInsertPosition.INSERT_AFTER_CURRENT_VIDEO else QueueInsertPosition.INSERT_AT_END
+
+        val playlistId = request.playlistId ?: MusicSearch.playlistIdFromLink(request.query)
+        if (playlistId != null && request.videoId == null && MusicSearch.videoIdFromLink(request.query) == null) {
+            val executed = onMain {
+                queue(request) != null && canExecuteCommands(request) &&
+                    executeCommand(InnerTubeCommands.queueAdd(null, playlistId, insertPosition))
+            }
+            if (executed) {
+                reply(request, STATUS_OK, "Adding playlist $playlistId", Bundle().apply { putString(EXTRA_PLAYLIST_ID, playlistId) })
+            }
+            return
+        }
+
+        val song = resolveSong(request) ?: return
+        val before = onMain {
+            val queue = queue(request) ?: return@onMain null
+            if (!canExecuteCommands(request)) return@onMain null
+            snapshotAndExecute(request, queue, InnerTubeCommands.queueAdd(song.videoId, null, insertPosition))
+        } ?: return
+
+        val index = awaitAddedItem(before, song.videoId) { queue, _, itemIndex ->
+            QueueEdits.placeAdded(queue, itemIndex, position)
+        }
+        if (index == null) {
+            reply(request, STATUS_TIMEOUT, "Timed out adding \"${song.title}\"", songExtras(song))
+            return
+        }
+        val extras = onMain { currentQueue()?.let { itemExtras(it, index) } ?: songExtras(song) }
+        reply(request, STATUS_OK, "Added \"${extras.getString(EXTRA_TITLE, song.title)}\" at index $index", extras)
+    }
+
+    private fun play(request: Request) {
+        val playlistId = request.playlistId ?: MusicSearch.playlistIdFromLink(request.query)
+        var song: MusicSearch.Result? = null
+        if (request.videoId != null || MusicSearch.videoIdFromLink(request.query) != null ||
+            (playlistId == null && request.query.isNotBlank())
+        ) {
+            song = resolveSong(request) ?: return
+        } else if (playlistId == null) {
+            reply(request, STATUS_BAD_REQUEST, "Missing query, video_id or playlist_id")
+            return
+        }
+        val executed = onMain {
+            canExecuteCommands(request) && executeCommand(InnerTubeCommands.watch(song?.videoId, playlistId))
+        }
+        if (executed) {
+            if (song == null) reply(request, STATUS_OK, "Playing playlist $playlistId")
+            else reply(request, STATUS_OK, "Playing \"${song.title}\"", songExtras(song))
+        }
+    }
+
+    private fun execute(request: Request) {
+        val bytes = try {
+            Base64.getMimeDecoder().decode(request.stringExtra(EXTRA_COMMAND).orEmpty())
+        } catch (_: IllegalArgumentException) {
+            reply(request, STATUS_BAD_REQUEST, "command must be base64")
+            return
+        }
+        if (bytes.isEmpty()) {
+            reply(request, STATUS_BAD_REQUEST, "Missing command")
+            return
+        }
+        val executed = onMain { canExecuteCommands(request) && executeCommand(bytes) }
+        if (executed) {
+            reply(request, STATUS_OK, "Command executed")
+        } else if (commandMappings.isNotEmpty()) {
+            reply(request, STATUS_NOT_FOUND, "The app has no handler for this command")
+        }
+    }
+
+    /**
+     * The song of a request: the video id, a link in the query, or a search. Null after replying if
+     * nothing was found.
+     */
+    private fun resolveSong(request: Request): MusicSearch.Result? {
+        val videoId = request.videoId ?: MusicSearch.videoIdFromLink(request.query)
+        if (videoId != null) return MusicSearch.Result(videoId, videoId, "", -1)
+        if (request.query.isBlank()) {
+            reply(request, STATUS_BAD_REQUEST, "Missing query or video_id")
+            return null
+        }
+        val song = MusicSearch.search(request.query.trim())
+        if (song == null) reply(request, STATUS_NOT_FOUND, "No song found for \"${request.query}\"")
+        return song
     }
 
     private fun move(request: Request) {
@@ -191,7 +311,7 @@ object QueueApiPatch {
     }
 
     private fun remove(request: Request) {
-        val videoId = request.stringExtra(EXTRA_VIDEO_ID)
+        val videoId = request.videoId
         onMain {
             val queue = queue(request) ?: return@onMain
             var index = request.intExtra(EXTRA_INDEX, -1)
@@ -300,11 +420,69 @@ object QueueApiPatch {
         item.requester?.let { putString(EXTRA_REQUESTER, it) }
     }
 
-    /** Runs [task] on the main thread and waits for it. */
-    private fun onMain(task: () -> Unit) {
-        val future = FutureTask<Unit> { task() }
+    /** False after replying UNAVAILABLE if the app has not created a command mapping yet. */
+    private fun canExecuteCommands(request: Request): Boolean {
+        if (commandMappings.any { it.get() != null }) return true
+        reply(request, STATUS_UNAVAILABLE, "Music app is not ready")
+        return false
+    }
+
+    /** False if no command mapping of the app knows the command. */
+    private fun executeCommand(command: ByteArray): Boolean {
+        val parsed = AppBridge.parseCommand(command) ?: return false
+        if (commandMappings.any { reference -> reference.get()?.let { AppBridge.executeCommand(it, parsed) } == true }) {
+            return true
+        }
+        Logger.printInfo { "No command resolver found for command" }
+        return false
+    }
+
+    /**
+     * Takes a snapshot of the queue items, then runs the command.
+     *
+     * @return The snapshot, or null after replying if the app did not accept the command.
+     */
+    private fun snapshotAndExecute(request: Request, queue: PlayerQueue, command: ByteArray): Set<Any>? {
+        val before = java.util.Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
+        (0 until queue.size).mapTo(before) { queue.itemAt(it) }
+        if (executeCommand(command)) return before
+        reply(request, STATUS_ERROR, "The app did not accept the add command")
+        return null
+    }
+
+    /**
+     * Worker thread. The app adds songs with its own command, which loads them from the network, so
+     * this waits until a new item with [videoId] shows up, then lets [place] position it.
+     *
+     * @return The final index, or null on timeout.
+     */
+    private fun awaitAddedItem(before: Set<Any>, videoId: String, place: (PlayerQueue, Any, Int) -> Int): Int? {
+        val deadline = System.currentTimeMillis() + INSERT_TIMEOUT_MILLISECONDS
+        while (System.currentTimeMillis() < deadline) {
+            val index = onMain {
+                val queue = currentQueue() ?: return@onMain null
+                (0 until queue.size).firstOrNull { i ->
+                    val item = queue.itemAt(i)
+                    item !in before && AppBridge.itemVideoId(item) == videoId
+                }?.let { place(queue, queue.itemAt(it), it) }
+            }
+            if (index != null) return index
+            Thread.sleep(INSERT_POLL_MILLISECONDS)
+        }
+        return null
+    }
+
+    private fun songExtras(song: MusicSearch.Result) = Bundle().apply {
+        putString(EXTRA_VIDEO_ID, song.videoId)
+        putString(EXTRA_TITLE, song.title)
+        putString(EXTRA_ARTIST, song.artist)
+    }
+
+    /** Runs [task] on the main thread and waits for its result. */
+    private fun <T> onMain(task: () -> T): T {
+        val future = FutureTask { task() }
         Utils.runOnMainThread(future)
-        future.get(MAIN_THREAD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        return future.get(MAIN_THREAD_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     }
 
     /** Sends NOW_PLAYING events when the playing item changes. */
@@ -341,7 +519,11 @@ object QueueApiPatch {
     // endregion
 
     private fun reply(request: Request, status: String, message: String, extras: Bundle? = null) {
-        Logger.printInfo { "RESULT ${request.shortAction} ${request.requestId} $status: $message" }
+        val queueText = extras?.getString(EXTRA_QUEUE_TEXT)
+        Logger.printInfo {
+            "RESULT ${request.shortAction} ${request.requestId} $status: $message" +
+                (if (queueText == null) "" else " | queue: ${queueText.replace('\n', ';')}")
+        }
         val context = Utils.getContext() ?: return
         val result = Intent(ACTION_RESULT)
         extras?.let { result.putExtras(it) }
@@ -362,6 +544,9 @@ object QueueApiPatch {
         val requestId = stringExtra(EXTRA_REQUEST_ID)?.takeIf { it.isNotEmpty() } ?: UUID.randomUUID().toString().take(8)
         val replyPackage: String? =
             if (extras?.containsKey(EXTRA_REPLY_PACKAGE) == true) stringExtra(EXTRA_REPLY_PACKAGE) else DEFAULT_REPLY_PACKAGE
+        val query = stringExtra(EXTRA_QUERY).orEmpty()
+        val videoId = stringExtra(EXTRA_VIDEO_ID)?.takeIf { it.isNotEmpty() }
+        val playlistId = stringExtra(EXTRA_PLAYLIST_ID)?.takeIf { it.isNotEmpty() }
 
         @Suppress("DEPRECATION")
         fun stringExtra(key: String): String? = extras?.get(key)?.toString()

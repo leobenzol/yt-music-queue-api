@@ -4,6 +4,7 @@ import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.extensions.InstructionExtensions.instructions
 import app.morphe.patcher.extensions.InstructionExtensions.instructionsOrNull
+import app.morphe.patcher.StringComparisonType
 import app.morphe.patcher.patch.BytecodePatchContext
 import app.morphe.patcher.patch.PatchException
 import app.morphe.patcher.util.proxy.mutableTypes.MutableClass
@@ -51,6 +52,29 @@ internal class QueueTargets(
 
 /** Title and subtitle getters of the music queue item type. */
 internal class MetadataTargets(val type: String, val title: InvokeTarget, val artist: InvokeTarget)
+
+/**
+ * How to parse and run an InnerTube command (NavigationEndpoint).
+ *
+ * Commands run through the app's command mapping: a map from command type to a lazily created
+ * resolver. The same mapping handles taps on "Play next", so the app behaves exactly as if the user
+ * had tapped it.
+ */
+internal class CommandTargets(
+    val mappingType: String,
+    val endpointType: String,
+    val endpointDefaultInstance: FieldReference,
+    val parseFrom: MethodReference,
+    val generatedRegistry: MethodReference,
+    val findResolver: InvokeTarget,
+    val unresolved: FieldReference,
+    val resolve: InvokeTarget,
+)
+
+/** Logged by the command mapping when no resolver handles a command. */
+private const val UNRESOLVED_COMMAND_STRING_PREFIX = "Unknown command not resolved"
+
+private const val EXTENSION_REGISTRY_TYPE = "Lcom/google/protobuf/ExtensionRegistryLite;"
 
 internal fun BytecodePatchContext.findQueueTargets(): QueueTargets {
     val managerClass = QueueManagerFingerprint.originalClassDef
@@ -134,6 +158,72 @@ internal fun BytecodePatchContext.findMetadataTargets(): MetadataTargets? {
     return null
 }
 
+internal fun BytecodePatchContext.findCommandTargets(): CommandTargets {
+    // The map based command mapping: constructor(Map<Class, Provider<CommandResolver>>).
+    val mappingClass = classDefByStrings(UNRESOLVED_COMMAND_STRING_PREFIX, StringComparisonType.STARTS_WITH)
+        .firstOrNull { classDef ->
+            classDef.methods.any { MethodUtil.isConstructor(it) && it.hasSignature(listOf("Ljava/util/Map;"), "V") }
+        } ?: fail("map command mapping (string \"$UNRESOLVED_COMMAND_STRING_PREFIX\")")
+
+    // CommandResolver findResolver(NavigationEndpoint command)
+    val find = mappingClass.methods.singleOrNull {
+        !isStatic(it) && it.parameterTypes.size == 1 && it.parameterTypes[0].startsWith("L") &&
+            it.returnType.startsWith("L") && it.returnType != "Ljava/lang/Object;" &&
+            classDefByOrNull(it.returnType)?.let { type -> AccessFlags.INTERFACE.isSet(type.accessFlags) } == true
+    } ?: fail("findResolver(command) in ${mappingClass.type}")
+    val endpointType = find.parameterTypes[0].toString()
+    val resolverType = find.returnType
+
+    // Returned when no resolver handles the command.
+    val unresolved = find.instructionsOrNull
+        ?.firstOrNull { it.opcode == Opcode.SGET_OBJECT && ((it as ReferenceInstruction).reference as FieldReference).type == resolverType }
+        ?.let { ImmutableFieldReference.of((it as ReferenceInstruction).reference as FieldReference) }
+        ?: fail("unresolved command sentinel in ${find.definingClass}->${find.name}")
+
+    // void resolve(NavigationEndpoint command, Map arguments)
+    val resolve = allMethods(resolverType).singleOrNull {
+        it.hasSignature(listOf(endpointType, "Ljava/util/Map;"), "V")
+    } ?: fail("CommandResolver.resolve(command, map) in $resolverType")
+
+    val defaultInstance = classDefByOrNull(endpointType)?.staticFields?.firstOrNull { it.type == endpointType }
+        ?.let(ImmutableFieldReference::of)
+        ?: fail("default instance of $endpointType")
+
+    // GeneratedMessageLite.parseFrom(defaultInstance, bytes, ExtensionRegistryLite.getGeneratedRegistry())
+    var parseFrom: MethodReference? = null
+    var generatedRegistry: MethodReference? = null
+    classDefForEach { classDef ->
+        if (parseFrom != null && generatedRegistry != null) return@classDefForEach
+        for (method in classDef.methods) {
+            for (instruction in method.instructionsOrNull ?: continue) {
+                if (instruction.opcode != Opcode.INVOKE_STATIC) continue
+                val reference = (instruction as ReferenceInstruction).reference as MethodReference
+                val parameters = reference.parameterTypes.map(CharSequence::toString)
+                if (parseFrom == null && parameters.size == 3 && parameters[1] == "[B" &&
+                    parameters[2] == EXTENSION_REGISTRY_TYPE && reference.returnType == parameters[0]
+                ) {
+                    parseFrom = ImmutableMethodReference.of(reference)
+                } else if (generatedRegistry == null && parameters.isEmpty() &&
+                    reference.returnType == EXTENSION_REGISTRY_TYPE && reference.definingClass == EXTENSION_REGISTRY_TYPE
+                ) {
+                    generatedRegistry = ImmutableMethodReference.of(reference)
+                }
+            }
+        }
+    }
+
+    return CommandTargets(
+        mappingType = mappingClass.type,
+        endpointType = endpointType,
+        endpointDefaultInstance = defaultInstance,
+        parseFrom = parseFrom ?: fail("GeneratedMessageLite.parseFrom(message, byte[], ExtensionRegistryLite)"),
+        generatedRegistry = generatedRegistry ?: fail("ExtensionRegistryLite.getGeneratedRegistry()"),
+        findResolver = invokeTarget(find),
+        unresolved = unresolved,
+        resolve = invokeTarget(resolve),
+    )
+}
+
 // region Changing the app and the extension
 
 /**
@@ -144,7 +234,8 @@ internal fun BytecodePatchContext.findMetadataTargets(): MetadataTargets? {
 internal fun MutableClass.replaceBody(name: String, locals: Int, smali: String) {
     val stub = methods.singleOrNull { it.name == name }
         ?: throw PatchException("Queue API: extension method $name not found")
-    val parameterRegisters = stub.parameterTypes.sumOf { if (it == "J" || it == "D") 2 else 1 as Int }
+    // Wide types (long, double) take two registers.
+    val parameterRegisters = stub.parameterTypes.size + stub.parameterTypes.count { it == "J" || it == "D" }
 
     methods.remove(stub)
     methods.add(

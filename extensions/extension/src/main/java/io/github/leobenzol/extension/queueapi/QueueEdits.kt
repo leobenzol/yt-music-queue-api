@@ -10,7 +10,26 @@ interface EditableQueue : RequestOrdering.QueueView {
     fun jump(index: Int)
 }
 
-/** The edits of MOVE, REMOVE, JUMP and CLEAR. */
+/** Where ADD puts a song. */
+sealed interface AddPosition {
+    /** After the playing item. */
+    data object Next : AddPosition
+
+    data object End : AddPosition
+
+    data class Index(val index: Int) : AddPosition
+
+    companion object {
+        /** "next", "end" or an index. Null if [text] is none of them. Missing means [End]. */
+        fun parse(text: String?): AddPosition? = when (val position = text?.trim()?.lowercase()) {
+            null, "", "end" -> End
+            "next" -> Next
+            else -> position.toIntOrNull()?.let(::Index)
+        }
+    }
+}
+
+/** The edits of ADD, MOVE, REMOVE, JUMP and CLEAR. */
 object QueueEdits {
     fun isValidIndex(queue: EditableQueue, index: Int) = index in 0 until queue.size
 
@@ -48,5 +67,20 @@ object QueueEdits {
         }
         ordering.prune(queue)
         return removed
+    }
+
+    /**
+     * Moves an item the app just added to where ADD asked for.
+     *
+     * @return The item's final index.
+     */
+    fun placeAdded(queue: EditableQueue, index: Int, position: AddPosition): Int {
+        val target = when (position) {
+            AddPosition.Next -> queue.currentIndex + 1
+            AddPosition.End -> index
+            is AddPosition.Index -> position.index
+        }.coerceIn(0, queue.size - 1)
+        if (target != index) queue.move(index, target)
+        return target
     }
 }
