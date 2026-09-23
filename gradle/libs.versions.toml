@@ -1,5 +1,6 @@
 [versions]
-morphe-patcher = "1.13.0"
+morphe-patcher = "1.14.0"
+morphe-patches-library = "1.7.1-dev.2"
 #noinspection GradleDependency
 smali = "d92701d947"
 gson = "2.14.0"
@@ -9,6 +10,8 @@ protobuf = "0.10.0"
 protoc = "4.36.1"
 
 [libraries]
+morphe-patches-library = { module = "app.morphe:morphe-patches-library", version.ref = "morphe-patches-library" }
+morphe-extensions-library = { module = "app.morphe:morphe-extensions-library", version.ref = "morphe-patches-library" }
 # Android's org.json implementation, for unit tests.
 android-json = { module = "com.vaadin.external.google:android-json", version.ref = "android-json" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }

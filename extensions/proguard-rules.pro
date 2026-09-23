@@ -5,6 +5,10 @@
 -keep class io.github.leobenzol.** {
   *;
 }
+# The Morphe extensions library, bundled by the shared extension.
+-keep class app.morphe.** {
+  *;
+}
 # R8 can strip Kotlin intrinsics methods that are used by extension Kotlin code.
 -keep class kotlin.jvm.internal.Intrinsics {
     public static *;

@@ -11,6 +11,9 @@ android {
 }
 
 dependencies {
+    // Provided at runtime by the shared extension.
+    compileOnly(libs.morphe.extensions.library)
+
     implementation(libs.protobuf.javalite)
 
     testImplementation(platform(libs.junit.bom))
