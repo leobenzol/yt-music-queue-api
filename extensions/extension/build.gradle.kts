@@ -1,3 +1,7 @@
+plugins {
+    alias(libs.plugins.protobuf)
+}
+
 extension {
     name = "extensions/extension.mpe"
 }
@@ -7,6 +11,8 @@ android {
 }
 
 dependencies {
+    implementation(libs.protobuf.javalite)
+
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
@@ -14,4 +20,19 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+}
+
+protobuf {
+    protoc {
+        artifact = libs.protobuf.protoc.get().toString()
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.builtins {
+                create("java") {
+                    option("lite")
+                }
+            }
+        }
+    }
 }

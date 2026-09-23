@@ -1,6 +1,7 @@
 -dontobfuscate
 -dontoptimize
 -keepattributes *
+# Also keeps the generated protobuf messages, whose fields protobuf lite reads by reflection.
 -keep class io.github.leobenzol.** {
   *;
 }
