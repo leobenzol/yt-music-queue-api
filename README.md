@@ -1,16 +1,16 @@
-# 👋🧩 Morphe Patches template
+# 🎶🧩 YT Music Queue API
 
-Template repository for Morphe Patches.
+Patches that let other apps, such as Tasker, control the YouTube Music queue.
 
 ## ❓ About
 
-Patches for apps I like.
-
-<!-- TODO: Update this about section with a brief introduction/summary about this repo and what it offers. -->
+Adds a broadcast intent API to YouTube Music: song requests with fair ordering, add, play, move, remove,
+jump, clear and read the queue, plus now playing events. Use these patches together with the
+regular [Morphe Patches](https://github.com/MorpheApp/morphe-patches).
 
 ### How to use these patches
 
-Click here to add these patches to Morphe: https://morphe.software/add-source?github=xyz-user/xyz-patches
+Click here to add these patches to Morphe: https://morphe.software/add-source?github=leobenzol/yt-music-queue-api
 
 ## 🩹 Patches list
 
@@ -88,4 +88,4 @@ See the [Morphe documentation](https://github.com/MorpheApp/morphe-documentation
 
 ## 📜 License
 
-UserXYZ Patches are licensed under the [GNU General Public License v3.0](LICENSE)
+YT Music Queue API patches are licensed under the [GNU General Public License v3.0](LICENSE)

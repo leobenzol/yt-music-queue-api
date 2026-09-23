@@ -1,14 +1,13 @@
-group = "app.template"
+group = "io.github.leobenzol"
 
 patches {
-    // TODO: Update this section with your project details.
     about {
-        name = "UserXYZ Patches"
-        description = "Patches for apps I like"
-        source = "git@github.com:UserXYZ/morphe-patches.git"
-        author = "Awesome dev"
-        contact = "na"
-        website = "na"
+        name = "YT Music Queue API"
+        description = "Lets other apps, such as Tasker, control the YouTube Music queue"
+        source = "git@github.com:leobenzol/yt-music-queue-api.git"
+        author = "Leonardo Benini"
+        contact = "https://github.com/leobenzol"
+        website = "https://github.com/leobenzol/yt-music-queue-api"
         license = "GPLv3"
     }
 }
