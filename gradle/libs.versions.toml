@@ -7,7 +7,7 @@ gson = "2.14.0"
 android-json = "0.0.20131108.vaadin1"
 junit = "5.14.4"
 protobuf = "0.10.0"
-protoc = "4.36.1"
+protoc = "4.36.2"
 
 [libraries]
 morphe-patches-library = { module = "app.morphe:morphe-patches-library", version.ref = "morphe-patches-library" }
